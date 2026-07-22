@@ -41,7 +41,7 @@
 
   <!-- ====== KONFIGURASI: ganti URL ini dengan URL deployment Web App kamu ====== -->
   <script>
-    var API_URL = 'https://script.google.com/macros/s/AKfycbzmTkgEk2eA7rygb3N3H_dlqqrNCa2zA5VPV_eaYFSH3H7uy-bITWcLfSrXoX_53X-AXw/exec'; // contoh: https://script.google.com/macros/s/AKfycb.../exec
+    var API_URL = 'https://script.google.com/macros/s/AKfycbzFdQWM6yijvhpNZsDLuN4_VbZ2FkWiu4LTht7-XGJFq3-upUOrC9nM8LpHSKHlyBRdiw/exec'; // contoh: https://script.google.com/macros/s/AKfycb.../exec
   </script>
 
   <div id="login-card" class="card">
@@ -123,11 +123,23 @@
   }
 
   function api(action, payload) {
-    var body = Object.assign({ action: action, token: token }, payload || {});
+    // Kirim sebagai form-urlencoded (URLSearchParams) TANPA header custom --
+    // browser otomatis pakai Content-Type "application/x-www-form-urlencoded"
+    // yang termasuk "simple request" di spesifikasi CORS, jadi tidak memicu
+    // preflight OPTIONS. Apps Script Web App tidak bisa menjawab preflight
+    // OPTIONS, jadi kalau request memicu preflight (mis. body JSON dengan
+    // header Content-Type: application/json), browser akan block dengan
+    // error CORS walau server sebenarnya baik-baik saja.
+    var params = new URLSearchParams();
+    params.append('action', action);
+    if (token) params.append('token', token);
+    Object.keys(payload || {}).forEach(function (k) {
+      var v = payload[k];
+      params.append(k, (v !== null && typeof v === 'object') ? JSON.stringify(v) : (v == null ? '' : String(v)));
+    });
     return fetch(API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // hindari CORS preflight
-      body: JSON.stringify(body)
+      body: params
     }).then(function (res) { return res.json(); });
   }
 
