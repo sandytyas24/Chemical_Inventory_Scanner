@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scan Barcode - Chemical Inventory</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+    background: #F8F9FB; color: #2B2F36; padding: 16px;
+  }
+  .card {
+    background: #fff; border: 1px solid #E7EAEE; border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(30,35,45,.06); padding: 18px; max-width: 480px;
+    margin: 0 auto 14px;
+  }
+  h1 { font-size: 18px; margin: 0 0 14px; }
+  label { display: block; font-size: 12px; font-weight: 600; color: #767E8C; margin-bottom: 5px; }
+  input, select {
+    width: 100%; border: 1px solid #E7EAEE; border-radius: 9px; padding: 10px 12px;
+    font-size: 14px; margin-bottom: 12px; font-family: inherit;
+  }
+  input[readonly] { background: #F8F9FB; }
+  button {
+    border: none; border-radius: 9px; padding: 11px 16px; font-size: 14px; font-weight: 600;
+    cursor: pointer; width: 100%; font-family: inherit;
+  }
+  .btn-primary { background: #7FA99B; color: #fff; }
+  .btn-secondary { background: #F1F4F2; color: #2B2F36; border: 1px solid #E7EAEE; margin-bottom: 10px; }
+  .msg { padding: 10px 12px; border-radius: 9px; font-size: 13px; margin-bottom: 12px; display: none; }
+  .msg-error { background: #FDE4E4; color: #B4383D; }
+  .msg-success { background: #E3F4EA; color: #2E8B57; }
+  #reader { width: 100%; border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
+  .hint { font-size: 11px; color: #767E8C; margin-top: -6px; margin-bottom: 12px; }
+  #logout-btn { background: none; border: none; color: #767E8C; font-size: 12px; text-decoration: underline; width: auto; padding: 0; float: right; }
+</style>
+</head>
+<body>
+
+  <!-- ====== KONFIGURASI: ganti URL ini dengan URL deployment Web App kamu ====== -->
+  <script>
+    var API_URL = 'https://script.google.com/macros/s/AKfycbzmTkgEk2eA7rygb3N3H_dlqqrNCa2zA5VPV_eaYFSH3H7uy-bITWcLfSrXoX_53X-AXw/exec'; // contoh: https://script.google.com/macros/s/AKfycb.../exec
+  </script>
+
+  <div id="login-card" class="card">
+    <h1>Login - Scan Barcode</h1>
+    <div class="msg msg-error" id="login-err"></div>
+    <label>Email</label>
+    <input type="email" id="login-email">
+    <label>Password</label>
+    <input type="password" id="login-password">
+    <button class="btn-primary" id="login-btn">Masuk</button>
+  </div>
+
+  <div id="scan-card" class="card" style="display:none;">
+    <button id="logout-btn">Logout</button>
+    <h1>Scan Barcode</h1>
+    <div class="msg msg-error" id="scan-err"></div>
+    <div class="msg msg-success" id="scan-ok"></div>
+
+    <div id="reader"></div>
+    <button class="btn-secondary" id="start-btn">Mulai Scan</button>
+    <button class="btn-secondary" id="stop-btn" style="display:none;">Berhenti</button>
+
+    <label>Atau masukkan manual (Kode-Batch)</label>
+    <input type="text" id="manual-input" placeholder="CH0001-Z0908956">
+    <button class="btn-secondary" id="manual-btn">Cari</button>
+  </div>
+
+  <div id="form-card" class="card" style="display:none;">
+    <h1>Form Transaksi</h1>
+    <div class="msg msg-error" id="form-err"></div>
+
+    <label>Kode</label>
+    <input type="text" id="f-kode" readonly>
+    <label>Nama</label>
+    <input type="text" id="f-nama" readonly>
+
+    <label>Jenis Transaksi</label>
+    <select id="f-jenis">
+      <option value="Masuk">Masuk</option>
+      <option value="Keluar">Keluar</option>
+    </select>
+
+    <div id="f-batch-masuk-wrap">
+      <label>Batch</label>
+      <input type="text" id="f-batch-masuk">
+    </div>
+    <div id="f-batch-keluar-wrap" style="display:none;">
+      <label>Batch (sisa stok tersedia)</label>
+      <select id="f-batch-keluar"></select>
+    </div>
+    <div id="f-expired-wrap">
+      <label>Expired</label>
+      <input type="date" id="f-expired">
+    </div>
+
+    <label>Jumlah</label>
+    <input type="number" id="f-jumlah" min="0" step="0.01">
+    <label>Tujuan Penggunaan</label>
+    <input type="text" id="f-tujuan">
+    <label>Keterangan</label>
+    <input type="text" id="f-keterangan">
+
+    <button class="btn-primary" id="f-submit-btn">Submit Transaksi</button>
+    <button class="btn-secondary" id="f-cancel-btn" style="margin-top:8px;">Batal / Scan Lagi</button>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+  var token = sessionStorage.getItem('scanner_token');
+  var currentBatches = [];
+  var html5QrCode = null;
+
+  function showMsg(id, text) {
+    var el = document.getElementById(id);
+    if (!text) { el.style.display = 'none'; return; }
+    el.textContent = text;
+    el.style.display = 'block';
+  }
+
+  function api(action, payload) {
+    var body = Object.assign({ action: action, token: token }, payload || {});
+    return fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // hindari CORS preflight
+      body: JSON.stringify(body)
+    }).then(function (res) { return res.json(); });
+  }
+
+  function showScreen(id) {
+    ['login-card', 'scan-card', 'form-card'].forEach(function (s) {
+      document.getElementById(s).style.display = (s === id) ? '' : 'none';
+    });
+  }
+
+  function boot() {
+    if (token) showScreen('scan-card'); else showScreen('login-card');
+  }
+
+  // ---------- Login ----------
+  document.getElementById('login-btn').addEventListener('click', function () {
+    var email = document.getElementById('login-email').value.trim();
+    var password = document.getElementById('login-password').value;
+    if (!email || !password) { showMsg('login-err', 'Email dan password wajib diisi.'); return; }
+    if (!API_URL || API_URL.indexOf('PASANG_URL') !== -1) {
+      showMsg('login-err', 'API_URL belum di-set di file ini. Edit baris "PASANG_URL_WEB_APP_DI_SINI".');
+      return;
+    }
+    api('login', { email: email, password: password }).then(function (res) {
+      if (!res.success) { showMsg('login-err', res.message || 'Login gagal.'); return; }
+      token = res.token;
+      sessionStorage.setItem('scanner_token', token);
+      showMsg('login-err', null);
+      showScreen('scan-card');
+    }).catch(function (err) {
+      showMsg('login-err', 'Gagal menghubungi server: ' + err.message);
+    });
+  });
+
+  document.getElementById('logout-btn').addEventListener('click', function () {
+    token = null;
+    sessionStorage.removeItem('scanner_token');
+    showScreen('login-card');
+  });
+
+  // ---------- Scan ----------
+  document.getElementById('start-btn').addEventListener('click', function () {
+    document.getElementById('start-btn').style.display = 'none';
+    document.getElementById('stop-btn').style.display = '';
+    html5QrCode = new Html5Qrcode('reader');
+    Html5Qrcode.getCameras().then(function (cameras) {
+      if (!cameras || !cameras.length) throw new Error('Tidak ada kamera terdeteksi.');
+      var backCam = cameras.find(function (c) { return /back|belakang|rear|environment/i.test(c.label); });
+      var camId = backCam ? backCam.id : cameras[cameras.length - 1].id;
+      return html5QrCode.start(camId, { fps: 10, qrbox: 220 }, function (text) {
+        handleScanResult(text);
+        stopScan();
+      }, function () {});
+    }).catch(function (err) {
+      showMsg('scan-err', 'Gagal mengakses kamera: ' + err.message);
+      document.getElementById('start-btn').style.display = '';
+      document.getElementById('stop-btn').style.display = 'none';
+    });
+  });
+
+  document.getElementById('stop-btn').addEventListener('click', stopScan);
+  function stopScan() {
+    document.getElementById('start-btn').style.display = '';
+    document.getElementById('stop-btn').style.display = 'none';
+    if (html5QrCode) html5QrCode.stop().catch(function () {});
+  }
+
+  document.getElementById('manual-btn').addEventListener('click', function () {
+    var val = document.getElementById('manual-input').value.trim();
+    if (val) handleScanResult(val);
+  });
+
+  function handleScanResult(text) {
+    var parts = text.split('-');
+    var kode = parts[0];
+    showMsg('scan-err', null);
+    api('lookupKode', { kode: kode }).then(function (res) {
+      if (!res.success) { showMsg('scan-err', res.message); return; }
+      currentBatches = res.batches;
+      document.getElementById('f-kode').value = res.chemical.Kode;
+      document.getElementById('f-nama').value = res.chemical.Nama;
+      document.getElementById('f-jenis').value = 'Masuk';
+      document.getElementById('f-batch-masuk').value = parts.slice(1).join('-');
+      document.getElementById('f-jumlah').value = '';
+      document.getElementById('f-tujuan').value = '';
+      document.getElementById('f-keterangan').value = '';
+      updateJenisUI();
+      showMsg('scan-ok', 'Kode ' + res.chemical.Kode + ' ditemukan.');
+      showScreen('form-card');
+    }).catch(function (err) {
+      showMsg('scan-err', 'Gagal mencari kode: ' + err.message);
+    });
+  }
+
+  // ---------- Form transaksi ----------
+  document.getElementById('f-jenis').addEventListener('change', updateJenisUI);
+  function updateJenisUI() {
+    var jenis = document.getElementById('f-jenis').value;
+    document.getElementById('f-batch-masuk-wrap').style.display = jenis === 'Masuk' ? '' : 'none';
+    document.getElementById('f-expired-wrap').style.display = jenis === 'Masuk' ? '' : 'none';
+    document.getElementById('f-batch-keluar-wrap').style.display = jenis === 'Keluar' ? '' : 'none';
+    if (jenis === 'Keluar') {
+      var sel = document.getElementById('f-batch-keluar');
+      sel.innerHTML = currentBatches.map(function (b) {
+        return '<option value="' + b.Batch + '">' + b.Batch + ' (sisa: ' + b.Qty + ' ' + b.Satuan + ')</option>';
+      }).join('');
+    }
+  }
+
+  document.getElementById('f-cancel-btn').addEventListener('click', function () {
+    showMsg('scan-ok', null);
+    showScreen('scan-card');
+  });
+
+  document.getElementById('f-submit-btn').addEventListener('click', function () {
+    var jenis = document.getElementById('f-jenis').value;
+    var kode = document.getElementById('f-kode').value;
+    var batch = jenis === 'Masuk' ? document.getElementById('f-batch-masuk').value.trim() : document.getElementById('f-batch-keluar').value;
+    var jumlah = document.getElementById('f-jumlah').value;
+    if (!batch) { showMsg('form-err', 'Batch wajib diisi.'); return; }
+    if (!jumlah || Number(jumlah) <= 0) { showMsg('form-err', 'Jumlah harus lebih dari 0.'); return; }
+
+    var btn = document.getElementById('f-submit-btn');
+    btn.disabled = true; btn.textContent = 'Menyimpan...';
+    api('addTransaksi', {
+      data: {
+        Kode: kode, JenisTransaksi: jenis, Jumlah: Number(jumlah),
+        Batch: batch, Expired: document.getElementById('f-expired').value,
+        TujuanPenggunaan: document.getElementById('f-tujuan').value.trim(),
+        Keterangan: document.getElementById('f-keterangan').value.trim()
+      }
+    }).then(function (res) {
+      btn.disabled = false; btn.textContent = 'Submit Transaksi';
+      if (!res.success) { showMsg('form-err', res.message); return; }
+      showMsg('form-err', null);
+      showMsg('scan-ok', 'Transaksi tersimpan. Sisa stok: ' + res.sisaStok);
+      showScreen('scan-card');
+      document.getElementById('manual-input').value = '';
+    }).catch(function (err) {
+      btn.disabled = false; btn.textContent = 'Submit Transaksi';
+      showMsg('form-err', 'Gagal submit: ' + err.message);
+    });
+  });
+
+  boot();
+})();
+</script>
+</body>
+</html>
