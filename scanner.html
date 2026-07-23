@@ -150,7 +150,35 @@
   }
 
   function boot() {
-    if (token) showScreen('scan-card'); else showScreen('login-card');
+    // Kalau app utama buka halaman ini lewat tombol "Buka Halaman Scanner",
+    // token dikirim lewat URL (?token=...) supaya tidak perlu login ulang.
+    var urlParams = new URLSearchParams(window.location.search);
+    var urlToken = urlParams.get('token');
+    if (urlToken) {
+      token = urlToken;
+      sessionStorage.setItem('scanner_token', token);
+      // Bersihkan token dari address bar supaya tidak ke-share/ke-bookmark.
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+    if (!token) { showScreen('login-card'); return; }
+    if (!API_URL || API_URL.indexOf('PASANG_URL') !== -1) {
+      showScreen('login-card');
+      showMsg('login-err', 'API_URL belum di-set di file ini.');
+      return;
+    }
+    api('whoami', {}).then(function (res) {
+      if (!res.success) {
+        token = null;
+        sessionStorage.removeItem('scanner_token');
+        showScreen('login-card');
+        return;
+      }
+      showScreen('scan-card');
+    }).catch(function () {
+      // Gagal cek ke server (mis. offline) -- tetap coba masuk, nanti kalau
+      // token sudah expired action lain akan menolak dengan pesan jelas.
+      showScreen('scan-card');
+    });
   }
 
   // ---------- Login ----------
@@ -226,6 +254,7 @@
       document.getElementById('f-tujuan').value = '';
       document.getElementById('f-keterangan').value = '';
       updateJenisUI();
+      applyAutoExpired();
       showMsg('scan-ok', 'Kode ' + res.chemical.Kode + ' ditemukan.');
       showScreen('form-card');
     }).catch(function (err) {
@@ -235,16 +264,41 @@
 
   // ---------- Form transaksi ----------
   document.getElementById('f-jenis').addEventListener('change', updateJenisUI);
+  document.getElementById('f-batch-masuk').addEventListener('input', function () {
+    clearTimeout(window._expTimer);
+    window._expTimer = setTimeout(applyAutoExpired, 150);
+  });
+
   function updateJenisUI() {
     var jenis = document.getElementById('f-jenis').value;
     document.getElementById('f-batch-masuk-wrap').style.display = jenis === 'Masuk' ? '' : 'none';
     document.getElementById('f-expired-wrap').style.display = jenis === 'Masuk' ? '' : 'none';
     document.getElementById('f-batch-keluar-wrap').style.display = jenis === 'Keluar' ? '' : 'none';
     if (jenis === 'Keluar') {
+      var tersedia = currentBatches.filter(function (b) { return Number(b.Qty) > 0; });
       var sel = document.getElementById('f-batch-keluar');
-      sel.innerHTML = currentBatches.map(function (b) {
+      sel.innerHTML = tersedia.map(function (b) {
         return '<option value="' + b.Batch + '">' + b.Batch + ' (sisa: ' + b.Qty + ' ' + b.Satuan + ')</option>';
       }).join('');
+    } else {
+      applyAutoExpired();
+    }
+  }
+
+  // Kalau Kode+Batch yang diketik/discan sudah ada di Master Stock (restock
+  // batch lama), Expired otomatis diisi dari data yang tersimpan dan
+  // field-nya dikunci -- tidak perlu diketik manual lagi.
+  function applyAutoExpired() {
+    var batch = document.getElementById('f-batch-masuk').value.trim();
+    var expiredInput = document.getElementById('f-expired');
+    var existing = currentBatches.filter(function (b) { return String(b.Batch) === batch; })[0];
+    if (batch && existing) {
+      expiredInput.value = existing.Expired ? new Date(existing.Expired).toISOString().slice(0, 10) : '';
+      expiredInput.readOnly = true;
+      expiredInput.style.background = '#F8F9FB';
+    } else {
+      expiredInput.readOnly = false;
+      expiredInput.style.background = '';
     }
   }
 
