@@ -111,7 +111,7 @@
 <script>
 (function () {
   'use strict';
-  var token = sessionStorage.getItem('scanner_token');
+  var token = localStorage.getItem('scanner_token');
   var currentBatches = [];
   var html5QrCode = null;
 
@@ -149,36 +149,55 @@
     });
   }
 
+  var pendingKode = null; // dari QR label (?kode=...), diproses setelah pasti login
+
   function boot() {
-    // Kalau app utama buka halaman ini lewat tombol "Buka Halaman Scanner",
-    // token dikirim lewat URL (?token=...) supaya tidak perlu login ulang.
     var urlParams = new URLSearchParams(window.location.search);
     var urlToken = urlParams.get('token');
+    var urlKode = urlParams.get('kode');
+    if (urlKode) pendingKode = urlKode;
     if (urlToken) {
       token = urlToken;
-      sessionStorage.setItem('scanner_token', token);
-      // Bersihkan token dari address bar supaya tidak ke-share/ke-bookmark.
-      window.history.replaceState({}, document.title, window.location.pathname);
+      localStorage.setItem('scanner_token', token);
     }
-    if (!token) { showScreen('login-card'); return; }
+    // Bersihkan query string dari address bar (token/kode) supaya tidak
+    // ke-share/ke-bookmark dengan data sensitif atau kode basi.
+    if (urlToken || urlKode) window.history.replaceState({}, document.title, window.location.pathname);
+
     if (!API_URL || API_URL.indexOf('PASANG_URL') !== -1) {
       showScreen('login-card');
       showMsg('login-err', 'API_URL belum di-set di file ini.');
       return;
     }
+    if (!token) {
+      showScreen('login-card');
+      if (pendingKode) showMsg('login-err', 'Login dulu untuk melanjutkan input transaksi Kode ' + pendingKode + '.');
+      return;
+    }
     api('whoami', {}).then(function (res) {
       if (!res.success) {
         token = null;
-        sessionStorage.removeItem('scanner_token');
+        localStorage.removeItem('scanner_token');
         showScreen('login-card');
+        if (pendingKode) showMsg('login-err', 'Sesi berakhir, login dulu untuk melanjutkan Kode ' + pendingKode + '.');
         return;
       }
-      showScreen('scan-card');
+      afterLoginReady();
     }).catch(function () {
-      // Gagal cek ke server (mis. offline) -- tetap coba masuk, nanti kalau
-      // token sudah expired action lain akan menolak dengan pesan jelas.
-      showScreen('scan-card');
+      afterLoginReady();
     });
+  }
+
+  // Dipanggil setelah dipastikan sudah login (baik dari token URL/tersimpan,
+  // maupun baru saja submit form login) -- kalau ada kode pending dari QR
+  // label, langsung lanjut ke situ tanpa perlu scan/ketik ulang.
+  function afterLoginReady() {
+    showScreen('scan-card');
+    if (pendingKode) {
+      var kode = pendingKode;
+      pendingKode = null;
+      handleScanResult(kode);
+    }
   }
 
   // ---------- Login ----------
@@ -193,9 +212,9 @@
     api('login', { email: email, password: password }).then(function (res) {
       if (!res.success) { showMsg('login-err', res.message || 'Login gagal.'); return; }
       token = res.token;
-      sessionStorage.setItem('scanner_token', token);
+      localStorage.setItem('scanner_token', token);
       showMsg('login-err', null);
-      showScreen('scan-card');
+      afterLoginReady();
     }).catch(function (err) {
       showMsg('login-err', 'Gagal menghubungi server: ' + err.message);
     });
@@ -203,7 +222,7 @@
 
   document.getElementById('logout-btn').addEventListener('click', function () {
     token = null;
-    sessionStorage.removeItem('scanner_token');
+    localStorage.removeItem('scanner_token');
     showScreen('login-card');
   });
 
