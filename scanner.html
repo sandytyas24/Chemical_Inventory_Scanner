@@ -235,11 +235,12 @@
   });
 
   // ---------- Scan ----------
-  // scanBusy mencegah dobel start (mis. auto-start dipanggil lagi sebelum
-  // start sebelumnya selesai) -- ini bagian dari penyebab error "Mulai Scan"
-  // yang dilaporkan: instance lama belum benar-benar berhenti & dibersihkan
-  // (.clear()) sebelum instance baru dibuat menargetkan div #reader yang sama.
+  // scanBusy mencegah dobel start. cachedCamId disimpan setelah deteksi
+  // kamera pertama kali sukses -- supaya restart berikutnya (tiap habis
+  // submit) tidak perlu enumerasi ulang daftar kamera (Html5Qrcode.getCameras()
+  // bisa memakan waktu nyata di beberapa HP), jadi terasa lebih responsif.
   var scanBusy = false;
+  var cachedCamId = null;
 
   function startScan() {
     if (scanBusy || html5QrCode) return;
@@ -249,10 +250,17 @@
     showMsg('scan-err', null);
     var instance = new Html5Qrcode('reader');
     html5QrCode = instance;
-    Html5Qrcode.getCameras().then(function (cameras) {
-      if (!cameras || !cameras.length) throw new Error('Tidak ada kamera terdeteksi.');
-      var backCam = cameras.find(function (c) { return /back|belakang|rear|environment/i.test(c.label); });
-      var camId = backCam ? backCam.id : cameras[cameras.length - 1].id;
+
+    var camIdPromise = cachedCamId
+      ? Promise.resolve(cachedCamId)
+      : Html5Qrcode.getCameras().then(function (cameras) {
+          if (!cameras || !cameras.length) throw new Error('Tidak ada kamera terdeteksi.');
+          var backCam = cameras.find(function (c) { return /back|belakang|rear|environment/i.test(c.label); });
+          cachedCamId = backCam ? backCam.id : cameras[cameras.length - 1].id;
+          return cachedCamId;
+        });
+
+    camIdPromise.then(function (camId) {
       return instance.start(camId, { fps: 10, qrbox: 220 }, function (text) {
         handleScanResult(text);
       }, function () {});
@@ -261,9 +269,18 @@
     }).catch(function (err) {
       scanBusy = false;
       html5QrCode = null;
-      showMsg('scan-err', 'Gagal mengakses kamera: ' + err.message + ' -- coba tombol Mulai Scan lagi, atau pakai input manual di bawah.');
+      // Kalau gagal justru karena camId yang di-cache sudah tidak valid lagi
+      // (mis. device kamera berubah), buang cache-nya supaya percobaan
+      // berikutnya enumerasi ulang dari awal, bukan terus gagal berulang.
+      cachedCamId = null;
+      // Sebagian browser HP (terutama Safari iOS) memblokir akses kamera
+      // yang tidak dipicu langsung oleh ketukan pengguna -- ini kemungkinan
+      // penyebab auto-start gagal diam-diam saat sesi dipulihkan otomatis.
+      // Tampilkan tombol manual dengan jelas sebagai jalan pintas satu ketuk.
       document.getElementById('start-btn').style.display = '';
+      document.getElementById('start-btn').textContent = 'Ketuk untuk Mulai Scan';
       document.getElementById('stop-btn').style.display = 'none';
+      showMsg('scan-err', 'Kamera perlu diaktifkan manual di browser ini -- ketuk tombol di atas.');
     });
   }
 
@@ -345,7 +362,13 @@
     var expiredInput = document.getElementById('f-expired');
     var existing = currentBatches.filter(function (b) { return String(b.Batch) === batch; })[0];
     if (batch && existing) {
-      expiredInput.value = existing.Expired ? new Date(existing.Expired).toISOString().slice(0, 10) : '';
+      // Beberapa data lama diisi "-" (bukan benar-benar dikosongkan) di
+      // kolom Expired -- new Date("-") menghasilkan Invalid Date, dan
+      // .toISOString() pada Invalid Date MELEMPAR ERROR ("Invalid time
+      // value"), bukan cuma menghasilkan string kosong. Makanya wajib
+      // divalidasi dulu, apapun isi teksnya.
+      var expDate = existing.Expired ? new Date(existing.Expired) : null;
+      expiredInput.value = (expDate && !isNaN(expDate.getTime())) ? expDate.toISOString().slice(0, 10) : '';
       expiredInput.readOnly = true;
       expiredInput.style.background = '#F8F9FB';
     } else {
