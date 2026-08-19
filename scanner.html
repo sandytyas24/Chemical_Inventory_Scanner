@@ -191,12 +191,19 @@
   // Dipanggil setelah dipastikan sudah login (baik dari token URL/tersimpan,
   // maupun baru saja submit form login) -- kalau ada kode pending dari QR
   // label, langsung lanjut ke situ tanpa perlu scan/ketik ulang.
+  // Dipanggil setelah dipastikan sudah login (baik dari token URL/tersimpan,
+  // maupun baru saja submit form login) -- kalau ada kode pending dari QR
+  // label, langsung lanjut ke situ tanpa perlu scan/ketik ulang. Kalau
+  // tidak, langsung nyalakan kamera otomatis -- tidak perlu klik "Mulai
+  // Scan" manual supaya alurnya tidak terasa lama.
   function afterLoginReady() {
     showScreen('scan-card');
     if (pendingKode) {
       var kode = pendingKode;
       pendingKode = null;
       handleScanResult(kode);
+    } else {
+      startScan();
     }
   }
 
@@ -221,36 +228,61 @@
   });
 
   document.getElementById('logout-btn').addEventListener('click', function () {
+    stopScan();
     token = null;
     localStorage.removeItem('scanner_token');
     showScreen('login-card');
   });
 
   // ---------- Scan ----------
-  document.getElementById('start-btn').addEventListener('click', function () {
+  // scanBusy mencegah dobel start (mis. auto-start dipanggil lagi sebelum
+  // start sebelumnya selesai) -- ini bagian dari penyebab error "Mulai Scan"
+  // yang dilaporkan: instance lama belum benar-benar berhenti & dibersihkan
+  // (.clear()) sebelum instance baru dibuat menargetkan div #reader yang sama.
+  var scanBusy = false;
+
+  function startScan() {
+    if (scanBusy || html5QrCode) return;
+    scanBusy = true;
     document.getElementById('start-btn').style.display = 'none';
     document.getElementById('stop-btn').style.display = '';
-    html5QrCode = new Html5Qrcode('reader');
+    showMsg('scan-err', null);
+    var instance = new Html5Qrcode('reader');
+    html5QrCode = instance;
     Html5Qrcode.getCameras().then(function (cameras) {
       if (!cameras || !cameras.length) throw new Error('Tidak ada kamera terdeteksi.');
       var backCam = cameras.find(function (c) { return /back|belakang|rear|environment/i.test(c.label); });
       var camId = backCam ? backCam.id : cameras[cameras.length - 1].id;
-      return html5QrCode.start(camId, { fps: 10, qrbox: 220 }, function (text) {
+      return instance.start(camId, { fps: 10, qrbox: 220 }, function (text) {
         handleScanResult(text);
-        stopScan();
       }, function () {});
+    }).then(function () {
+      scanBusy = false;
     }).catch(function (err) {
-      showMsg('scan-err', 'Gagal mengakses kamera: ' + err.message);
+      scanBusy = false;
+      html5QrCode = null;
+      showMsg('scan-err', 'Gagal mengakses kamera: ' + err.message + ' -- coba tombol Mulai Scan lagi, atau pakai input manual di bawah.');
       document.getElementById('start-btn').style.display = '';
       document.getElementById('stop-btn').style.display = 'none';
     });
-  });
+  }
 
-  document.getElementById('stop-btn').addEventListener('click', stopScan);
+  document.getElementById('start-btn').addEventListener('click', startScan);
+  document.getElementById('stop-btn').addEventListener('click', function () { stopScan(); });
+
   function stopScan() {
     document.getElementById('start-btn').style.display = '';
     document.getElementById('stop-btn').style.display = 'none';
-    if (html5QrCode) html5QrCode.stop().catch(function () {});
+    if (!html5QrCode) return;
+    var instance = html5QrCode;
+    html5QrCode = null;
+    instance.stop().then(function () {
+      return instance.clear();
+    }).catch(function () {
+      // Kamera mungkin sudah berhenti sendiri (mis. tab pindah) -- tetap
+      // coba clear() supaya div #reader bersih untuk start berikutnya.
+      try { instance.clear(); } catch (e2) { /* diamkan */ }
+    });
   }
 
   document.getElementById('manual-btn').addEventListener('click', function () {
@@ -264,6 +296,7 @@
     showMsg('scan-err', null);
     api('lookupKode', { kode: kode }).then(function (res) {
       if (!res.success) { showMsg('scan-err', res.message); return; }
+      stopScan();
       currentBatches = res.batches;
       document.getElementById('f-kode').value = res.chemical.Kode;
       document.getElementById('f-nama').value = res.chemical.Nama;
@@ -324,6 +357,7 @@
   document.getElementById('f-cancel-btn').addEventListener('click', function () {
     showMsg('scan-ok', null);
     showScreen('scan-card');
+    startScan();
   });
 
   document.getElementById('f-submit-btn').addEventListener('click', function () {
@@ -350,6 +384,9 @@
       showMsg('scan-ok', 'Transaksi tersimpan. Sisa stok: ' + res.sisaStok);
       showScreen('scan-card');
       document.getElementById('manual-input').value = '';
+      // Langsung siap scan botol berikutnya -- tidak perlu klik "Mulai Scan"
+      // manual lagi tiap kali selesai submit.
+      startScan();
     }).catch(function (err) {
       btn.disabled = false; btn.textContent = 'Submit Transaksi';
       showMsg('form-err', 'Gagal submit: ' + err.message);
