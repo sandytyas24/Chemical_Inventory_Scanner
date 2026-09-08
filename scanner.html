@@ -41,7 +41,7 @@
 
   <!-- ====== KONFIGURASI: ganti URL ini dengan URL deployment Web App kamu ====== -->
   <script>
-    var API_URL = 'https://script.google.com/macros/s/AKfycbzFdQWM6yijvhpNZsDLuN4_VbZ2FkWiu4LTht7-XGJFq3-upUOrC9nM8LpHSKHlyBRdiw/exec'; // contoh: https://script.google.com/macros/s/AKfycb.../exec
+    var API_URL = 'PASANG_URL_WEB_APP_DI_SINI'; // contoh: https://script.google.com/macros/s/AKfycb.../exec
   </script>
 
   <div id="login-card" class="card">
@@ -317,7 +317,7 @@
       currentBatches = res.batches;
       document.getElementById('f-kode').value = res.chemical.Kode;
       document.getElementById('f-nama').value = res.chemical.Nama;
-      document.getElementById('f-jenis').value = 'Masuk';
+      document.getElementById('f-jenis').value = 'Keluar';
       document.getElementById('f-batch-masuk').value = parts.slice(1).join('-');
       document.getElementById('f-jumlah').value = '';
       document.getElementById('f-tujuan').value = '';
@@ -349,6 +349,13 @@
       sel.innerHTML = tersedia.map(function (b) {
         return '<option value="' + b.Batch + '">' + b.Batch + ' (sisa: ' + b.Qty + ' ' + b.Satuan + ')</option>';
       }).join('');
+      // Botol yang di-scan sudah pasti batch tertentu -- langsung pilihkan
+      // itu di dropdown, jangan biarkan default ke pilihan pertama (itu
+      // salah satu sumber "salah input" yang dilaporkan).
+      var scannedBatch = document.getElementById('f-batch-masuk').value.trim();
+      if (scannedBatch && tersedia.some(function (b) { return String(b.Batch) === scannedBatch; })) {
+        sel.value = scannedBatch;
+      }
     } else {
       applyAutoExpired();
     }
