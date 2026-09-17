@@ -41,7 +41,7 @@
 
   <!-- ====== KONFIGURASI: ganti URL ini dengan URL deployment Web App kamu ====== -->
   <script>
-    var API_URL = 'https://script.google.com/macros/s/AKfycbzFdQWM6yijvhpNZsDLuN4_VbZ2FkWiu4LTht7-XGJFq3-upUOrC9nM8LpHSKHlyBRdiw/exec'; // contoh: https://script.google.com/macros/s/AKfycb.../exec
+    var API_URL = https://script.google.com/macros/s/AKfycbzFdQWM6yijvhpNZsDLuN4_VbZ2FkWiu4LTht7-XGJFq3-upUOrC9nM8LpHSKHlyBRdiw/exec; // contoh: https://script.google.com/macros/s/AKfycb.../exec
   </script>
 
   <div id="login-card" class="card">
@@ -317,6 +317,10 @@
       currentBatches = res.batches;
       document.getElementById('f-kode').value = res.chemical.Kode;
       document.getElementById('f-nama').value = res.chemical.Nama;
+      // Scan dari botol SELALU berarti "Keluar" -- kalau ada label barcode
+      // di botolnya, artinya barang itu sudah pasti pernah di-"Masuk"-kan
+      // (labelnya baru dibuat setelah barang tercatat). "Masuk" (barang
+      // baru) dilakukan lewat web aplikasi langsung, bukan lewat scan.
       document.getElementById('f-jenis').value = 'Keluar';
       document.getElementById('f-batch-masuk').value = parts.slice(1).join('-');
       document.getElementById('f-jumlah').value = '';
@@ -355,6 +359,12 @@
       var scannedBatch = document.getElementById('f-batch-masuk').value.trim();
       if (scannedBatch && tersedia.some(function (b) { return String(b.Batch) === scannedBatch; })) {
         sel.value = scannedBatch;
+        showMsg('scan-err', null);
+      } else if (scannedBatch) {
+        // Batch yang di-scan tidak ada di daftar stok tersedia (mis. sudah
+        // habis/qty 0) -- jangan diam-diam biarkan user pilih batch lain
+        // yang berbeda dari botol yang dipegangnya.
+        showMsg('scan-err', 'Perhatian: batch "' + scannedBatch + '" tidak ditemukan atau stoknya sudah 0. Pastikan pilih batch yang benar di bawah, atau cek fisik botolnya.');
       }
     } else {
       applyAutoExpired();
