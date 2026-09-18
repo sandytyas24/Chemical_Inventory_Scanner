@@ -46,12 +46,14 @@
 
   <div id="login-card" class="card">
     <h1>Login - Scan Barcode</h1>
-    <div class="msg msg-error" id="login-err"></div>
-    <label>Email</label>
-    <input type="email" id="login-email">
-    <label>Password</label>
-    <input type="password" id="login-password">
-    <button class="btn-primary" id="login-btn">Masuk</button>
+    <form id="login-form">
+      <div class="msg msg-error" id="login-err"></div>
+      <label>Email</label>
+      <input type="email" id="login-email" name="username" autocomplete="username">
+      <label>Password</label>
+      <input type="password" id="login-password" name="password" autocomplete="current-password">
+      <button class="btn-primary" type="submit" id="login-btn">Masuk</button>
+    </form>
   </div>
 
   <div id="scan-card" class="card" style="display:none;">
@@ -208,7 +210,11 @@
   }
 
   // ---------- Login ----------
-  document.getElementById('login-btn').addEventListener('click', function () {
+  // Pakai event 'submit' dari <form> asli -- ini yang bikin Safari/iOS &
+  // browser lain mau menawarkan "Simpan Password?". Tombol type="submit"
+  // otomatis memicu event ini saat diklik.
+  document.getElementById('login-form').addEventListener('submit', function (e) {
+    e.preventDefault();
     var email = document.getElementById('login-email').value.trim();
     var password = document.getElementById('login-password').value;
     if (!email || !password) { showMsg('login-err', 'Email dan password wajib diisi.'); return; }
@@ -269,19 +275,25 @@
     }).catch(function (err) {
       scanBusy = false;
       html5QrCode = null;
-      // Kalau gagal justru karena camId yang di-cache sudah tidak valid lagi
-      // (mis. device kamera berubah), buang cache-nya supaya percobaan
-      // berikutnya enumerasi ulang dari awal, bukan terus gagal berulang.
       cachedCamId = null;
-      // Sebagian browser HP (terutama Safari iOS) memblokir akses kamera
-      // yang tidak dipicu langsung oleh ketukan pengguna -- ini kemungkinan
-      // penyebab auto-start gagal diam-diam saat sesi dipulihkan otomatis.
-      // Tampilkan tombol manual dengan jelas sebagai jalan pintas satu ketuk.
       document.getElementById('start-btn').style.display = '';
       document.getElementById('start-btn').textContent = 'Ketuk untuk Mulai Scan';
       document.getElementById('stop-btn').style.display = 'none';
-      showMsg('scan-err', 'Kamera perlu diaktifkan manual di browser ini -- ketuk tombol di atas.');
+      // Tampilkan pesan error ASLI dari browser -- jangan ditimpa tebakan
+      // generik, karena penyebabnya bisa macam-macam (kamera belum sempat
+      // dilepas browser lain, izin ditolak, device tidak mendukung, dll)
+      // dan pesan generik yang salah cuma bikin sulit didiagnosis.
+      var detail = (err && (err.name || err.message)) ? (err.name ? err.name + ': ' : '') + (err.message || err) : String(err);
+      showMsg('scan-err', 'Gagal mengaktifkan kamera (' + detail + ') -- ketuk tombol di atas untuk coba lagi.');
     });
+  }
+
+  // Restart kamera dengan jeda singkat -- beberapa browser (terutama Safari
+  // iOS) butuh waktu sesaat untuk benar-benar melepas kamera sebelum bisa
+  // dipakai lagi; restart yang terlalu instan sering gagal dengan error
+  // "kamera sedang dipakai" walau instance lama sudah di-stop().
+  function startScanDelayed() {
+    setTimeout(startScan, 350);
   }
 
   document.getElementById('start-btn').addEventListener('click', startScan);
@@ -397,7 +409,7 @@
   document.getElementById('f-cancel-btn').addEventListener('click', function () {
     showMsg('scan-ok', null);
     showScreen('scan-card');
-    startScan();
+    startScanDelayed();
   });
 
   document.getElementById('f-submit-btn').addEventListener('click', function () {
@@ -426,7 +438,7 @@
       document.getElementById('manual-input').value = '';
       // Langsung siap scan botol berikutnya -- tidak perlu klik "Mulai Scan"
       // manual lagi tiap kali selesai submit.
-      startScan();
+      startScanDelayed();
     }).catch(function (err) {
       btn.disabled = false; btn.textContent = 'Submit Transaksi';
       showMsg('form-err', 'Gagal submit: ' + err.message);
