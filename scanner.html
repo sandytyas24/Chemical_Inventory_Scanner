@@ -247,6 +247,7 @@
   // bisa memakan waktu nyata di beberapa HP), jadi terasa lebih responsif.
   var scanBusy = false;
   var cachedCamId = null;
+  var retriedOnce = false;
 
   function startScan() {
     if (scanBusy || html5QrCode) return;
@@ -272,10 +273,20 @@
       }, function () {});
     }).then(function () {
       scanBusy = false;
+      retriedOnce = false;
     }).catch(function (err) {
       scanBusy = false;
       html5QrCode = null;
       cachedCamId = null;
+      // NotReadableError biasanya cuma soal timing (kamera belum sempat
+      // benar-benar dilepas OS) -- coba sekali lagi otomatis dengan jeda
+      // lebih panjang sebelum menyerah ke tombol manual.
+      if (err && err.name === 'NotReadableError' && !retriedOnce) {
+        retriedOnce = true;
+        setTimeout(startScan, 1200);
+        return;
+      }
+      retriedOnce = false;
       document.getElementById('start-btn').style.display = '';
       document.getElementById('start-btn').textContent = 'Ketuk untuk Mulai Scan';
       document.getElementById('stop-btn').style.display = 'none';
@@ -293,7 +304,7 @@
   // dipakai lagi; restart yang terlalu instan sering gagal dengan error
   // "kamera sedang dipakai" walau instance lama sudah di-stop().
   function startScanDelayed() {
-    setTimeout(startScan, 350);
+    setTimeout(startScan, 700);
   }
 
   document.getElementById('start-btn').addEventListener('click', startScan);
@@ -302,7 +313,7 @@
   function stopScan() {
     document.getElementById('start-btn').style.display = '';
     document.getElementById('stop-btn').style.display = 'none';
-    if (!html5QrCode) return;
+    if (!html5QrCode) { releaseCameraHard_(); return; }
     var instance = html5QrCode;
     html5QrCode = null;
     instance.stop().then(function () {
@@ -311,8 +322,32 @@
       // Kamera mungkin sudah berhenti sendiri (mis. tab pindah) -- tetap
       // coba clear() supaya div #reader bersih untuk start berikutnya.
       try { instance.clear(); } catch (e2) { /* diamkan */ }
+    }).then(releaseCameraHard_, releaseCameraHard_);
+  }
+
+  // Jaring pengaman: .stop() bawaan library kadang tidak benar-benar
+  // melepas hardware kamera tepat waktu (inilah penyebab NotReadableError
+  // "kamera masih dipakai" waktu start berikutnya, baik di tab yang sama
+  // maupun tab baru). Cari langsung elemen <video> di dalam #reader dan
+  // matikan track-nya secara manual, independen dari cleanup internal
+  // library.
+  function releaseCameraHard_() {
+    var videos = document.querySelectorAll('#reader video');
+    videos.forEach(function (v) {
+      if (v.srcObject) {
+        try { v.srcObject.getTracks().forEach(function (t) { t.stop(); }); } catch (e) { /* diamkan */ }
+        v.srcObject = null;
+      }
     });
   }
+
+  // Kalau tab/halaman ini disembunyikan (pindah tab, minimize, dsb),
+  // lepas kamera otomatis -- mencegah kamera "terkunci" di tab yang
+  // ditinggalkan, yang bisa bikin tab lain (mis. dibuka lagi lewat tombol
+  // "buka halaman scanner" di web aplikasi) gagal NotReadableError.
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) stopScan();
+  });
 
   document.getElementById('manual-btn').addEventListener('click', function () {
     var val = document.getElementById('manual-input').value.trim();
