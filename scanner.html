@@ -41,7 +41,7 @@
 
   <!-- ====== KONFIGURASI: ganti URL ini dengan URL deployment Web App kamu ====== -->
   <script>
-    var API_URL = 'https://script.google.com/macros/s/AKfycbzFdQWM6yijvhpNZsDLuN4_VbZ2FkWiu4LTht7-XGJFq3-upUOrC9nM8LpHSKHlyBRdiw/exec'; // contoh: https://script.google.com/macros/s/AKfycb.../exec
+    var API_URL = 'PASANG_URL_WEB_APP_DI_SINI'; // contoh: https://script.google.com/macros/s/AKfycb.../exec
   </script>
 
   <div id="login-card" class="card">
@@ -319,9 +319,30 @@
     if (val) handleScanResult(val);
   });
 
+  // Kalau URL Halaman Scanner sudah diisi di Settings, isi QR yang di-scan
+  // bukan cuma "Kode-Batch" pendek lagi, tapi URL LENGKAP
+  // (https://.../scanner.html?kode=Kode-Batch). Memecah SELURUH URL pakai
+  // '-' itu keliru -- kalau URL-nya sendiri mengandung tanda '-' di mana
+  // pun (nama repo GitHub Pages, dll), hasil Kode/Batch jadi kacau. Jadi
+  // kalau teksnya berbentuk URL, ambil dulu nilai parameter ?kode=
+  // dengan benar, baru dipecah jadi Kode+Batch.
+  function extractKodeBatch_(text) {
+    var raw = (text || '').trim();
+    var kodeBatch = raw;
+    if (/^https?:\/\//i.test(raw)) {
+      try {
+        var url = new URL(raw);
+        var param = url.searchParams.get('kode');
+        if (param) kodeBatch = param;
+      } catch (e) { /* bukan URL valid, pakai teks apa adanya */ }
+    }
+    var parts = kodeBatch.split('-');
+    return { kode: parts[0], batch: parts.slice(1).join('-') };
+  }
+
   function handleScanResult(text) {
-    var parts = text.split('-');
-    var kode = parts[0];
+    var extracted = extractKodeBatch_(text);
+    var kode = extracted.kode;
     showMsg('scan-err', null);
     api('lookupKode', { kode: kode }).then(function (res) {
       if (!res.success) { showMsg('scan-err', res.message); return; }
@@ -334,7 +355,7 @@
       // (labelnya baru dibuat setelah barang tercatat). "Masuk" (barang
       // baru) dilakukan lewat web aplikasi langsung, bukan lewat scan.
       document.getElementById('f-jenis').value = 'Keluar';
-      document.getElementById('f-batch-masuk').value = parts.slice(1).join('-');
+      document.getElementById('f-batch-masuk').value = extracted.batch;
       document.getElementById('f-jumlah').value = '';
       document.getElementById('f-tujuan').value = '';
       document.getElementById('f-keterangan').value = '';
