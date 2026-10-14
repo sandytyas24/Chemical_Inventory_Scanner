@@ -41,7 +41,7 @@
 
   <!-- ====== KONFIGURASI: ganti URL ini dengan URL deployment Web App kamu ====== -->
   <script>
-    var API_URL = 'https://script.google.com/macros/s/AKfycbzFdQWM6yijvhpNZsDLuN4_VbZ2FkWiu4LTht7-XGJFq3-upUOrC9nM8LpHSKHlyBRdiw/exec'; // contoh: https://script.google.com/macros/s/AKfycb.../exec
+    var API_URL = https://script.google.com/macros/s/AKfycbzFdQWM6yijvhpNZsDLuN4_VbZ2FkWiu4LTht7-XGJFq3-upUOrC9nM8LpHSKHlyBRdiw/exec; // contoh: https://script.google.com/macros/s/AKfycb.../exec
   </script>
 
   <div id="login-card" class="card">
@@ -97,6 +97,10 @@
     <div id="f-expired-wrap">
       <label>Expired</label>
       <input type="date" id="f-expired">
+    </div>
+    <div id="f-coa-wrap">
+      <label>Link COA (opsional)</label>
+      <input type="url" id="f-coa" placeholder="https://drive.google.com/...">
     </div>
 
     <label>Jumlah</label>
@@ -394,6 +398,7 @@
       document.getElementById('f-jumlah').value = '';
       document.getElementById('f-tujuan').value = '';
       document.getElementById('f-keterangan').value = '';
+      document.getElementById('f-coa').value = '';
       updateJenisUI();
       applyAutoExpired();
       showMsg('scan-ok', 'Kode ' + res.chemical.Kode + ' ditemukan.');
@@ -414,6 +419,7 @@
     var jenis = document.getElementById('f-jenis').value;
     document.getElementById('f-batch-masuk-wrap').style.display = jenis === 'Masuk' ? '' : 'none';
     document.getElementById('f-expired-wrap').style.display = jenis === 'Masuk' ? '' : 'none';
+    document.getElementById('f-coa-wrap').style.display = jenis === 'Masuk' ? '' : 'none';
     document.getElementById('f-batch-keluar-wrap').style.display = jenis === 'Keluar' ? '' : 'none';
     if (jenis === 'Keluar') {
       var tersedia = currentBatches.filter(function (b) { return Number(b.Qty) > 0; });
@@ -456,9 +462,12 @@
       expiredInput.value = (expDate && !isNaN(expDate.getTime())) ? expDate.toISOString().slice(0, 10) : '';
       expiredInput.readOnly = true;
       expiredInput.style.background = '#F8F9FB';
+      // COA batch lama ditampilkan (boleh diganti kalau ada COA baru)
+      document.getElementById('f-coa').value = existing.COA || '';
     } else {
       expiredInput.readOnly = false;
       expiredInput.style.background = '';
+      document.getElementById('f-coa').value = '';
     }
   }
 
@@ -482,6 +491,7 @@
       data: {
         Kode: kode, JenisTransaksi: jenis, Jumlah: Number(jumlah),
         Batch: batch, Expired: document.getElementById('f-expired').value,
+        COA: jenis === 'Masuk' ? document.getElementById('f-coa').value.trim() : '',
         TujuanPenggunaan: document.getElementById('f-tujuan').value.trim(),
         Keterangan: document.getElementById('f-keterangan').value.trim()
       }
